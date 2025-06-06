@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Тест подписи PDF</title>
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <script src="https://www.cryptopro.ru/sites/default/files/products/cades/cadesplugin_api.js"
+            type="text/javascript"></script>
+    <meta charset="UTF-8">
+</head>
+<body>
+<h1>Подписание PDF через КриптоПРО</h1>
+<button id="signBtn">Подписать PDF</button>
+<script>
+    // 1. Проверка и инициализация плагина
+    async function initCadesPlugin() {
+        if (typeof cadesplugin === 'undefined') {
+            throw new Error('КриптоПРО Browser Plug-in не загружен. Установите плагин с https://cryptopro.ru/products/cades/plugin');
+        }
+
+        try {
+            // Ожидаем полной загрузки плагина
+            await cadesplugin;
+            return true;
+        } catch (e) {
+            throw new Error('Ошибка инициализации КриптоПРО: ' + e.message);
+        }
+    }
+
+    // 2. Основная функция подписания
+    async function signWithCryptoPRO(pdfBlob) {
+        try {
+            // Инициализируем плагин
+            await initCadesPlugin();
+            console.log(1)
+            // Создаем объекты для подписи
+            const signer = await window.cadesplugin.CreateObjectAsync("CAdESCOM.CPSigner");
+            console.log(2)
+            const signedData = await window.cadesplugin.CreateObjectAsync('CAdESCOM.CPSignedData');
+            console.log(3)
+            let oStore = await cadesplugin.CreateObjectAsync("CAPICOM.Store");
+            console.log(4, oStore)
+            oStore.Open(cadesplugin.CAPICOM_CURRENT_USER_STORE,
+                cadesplugin.CAPICOM_MY_STORE,
+                cadesplugin.CAPICOM_STORE_OPEN_MAXIMUM_ALLOWED);
+
+            let certs = await oStore.Certificates;
+            certs = await certs.Find(cadesplugin.CAPICOM_CERTIFICATE_FIND_TIME_VALID);
+            oStore.Close();
+
+            // Используем первый доступный сертификат
+            const certificate = await certs.Item(1);
+            console.log(certificate)
+            await signer.propset_Certificate(certificate);
+            await signer.propset_Options(1); // Подпись присоединенная
+
+            // Читаем PDF
+            const arrayBuffer = await pdfBlob.arrayBuffer();
+            const uint8Array = new Uint8Array(arrayBuffer);
+            await signedData.propset_ContentEncoding(1); // CADESCOM_BASE64_TO_BINARY
+            await signedData.propset_Content(uint8Array);
+
+            // Подписываем
+            const signature = await signedData.SignCades(signer, 1, true); // CADESCOM_CADES_BES
+            return new Blob([signature], {type: 'application/pdf'});
+
+        } catch (e) {
+            console.error('Ошибка подписания:', e);
+            throw e;
+        }
+    }
+
+
+    function SignHashAsync(dataToSign, thumbprint) {
+        return new Promise(function(resolve, reject) {
+            cadesplugin.async_spawn(function* (arg) {
+                var oStore;
+                try {
+                    oStore = yield cadesplugin.CreateObjectAsync("CAdESCOM.Store");
+
+                    yield oStore.Open(cadesplugin.CAPICOM_CURRENT_USER_STORE, cadesplugin.CAPICOM_MY_STORE, cadesplugin.CAPICOM_STORE_OPEN_MAXIMUM_ALLOWED);
+
+                    var allCertificates = yield oStore.Certificates;
+
+                    // var oCertificates = yield allCertificates.Find(cadesplugin.CAPICOM_CERTIFICATE_FIND_SHA1_HASH, thumbprint);
+
+                    var certificatesCount = yield allCertificates.Count;
+                    if (certificatesCount === 0) {
+                        return reject("Сертификат не найден в хранилище.");
+                    }
+                    var oCertificate = yield allCertificates.Item(1);
+
+                    try {
+                        var oSigner = yield cadesplugin.CreateObjectAsync("CAdESCOM.CPSigner");
+                        oSigner.propset_Certificate(oCertificate);
+                    } catch (err) {
+                        return reject("Не удалось создать Подписчика. " + (err));
+                    }
+                    // Подписываю данные base64 с сервера
+                    var oSignedData = yield cadesplugin.CreateObjectAsync("CAdESCOM.CadesSignedData");
+                    if (dataToSign) {
+                        console.log(dataToSign)
+                        try {
+                            yield oSignedData.propset_ContentEncoding(cadesplugin.CADESCOM_BASE64_TO_BINARY);
+                            yield oSignedData.propset_Content(dataToSign);
+                            console.log(2)
+                            var Signature = yield oSignedData.SignCades(oSigner, cadesplugin.CADESCOM_CADES_BES, true);
+                        } catch (err) {
+                            console.log(err)
+                            return reject("Не удалось создать подпись по данным " + (err));
+                        }
+                    }
+                    return resolve(Signature);
+                } catch (err) {
+                    return reject("Не удалось создать подпись. " + (err));
+                } finally {
+                    if (oStore) {
+                        yield oStore.Close();
+                    }
+                }
+            });
+        });
+    }
+
+    function blobToBase64(blob) {
+        return new Promise((resolve, _) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result);
+            reader.readAsDataURL(blob);
+        });
+    }
+
+    // 3. Обработчик кнопки
+    document.getElementById('signBtn').addEventListener('click', async () => {
+        try {
+            const btn = document.getElementById('signBtn');
+            btn.disabled = true;
+            btn.textContent = 'Подписание...';
+
+            // 1. Получаем PDF
+            const response = await axios.get('/api/pdf/generate');
+            // const blob = response.data;
+            const signData = response.data.pdfBase64;
+            // 2. Подписываем
+            // let signData = await blobToBase64(blob);
+            // let cleanBase64 = signData.replace(/^data:.*;base64,/, "");
+            let cleanBase64 = signData;
+            SignHashAsync(cleanBase64).then((signedPdf) => {
+                console.log("УРА", signedPdf);
+                const blob = base64ToBlob(signData);
+                const file = new File([blob], "signed.pdf", { type: "application/pdf" });
+                const bodyFormData = new FormData();
+                bodyFormData.append('pdf', file);
+                const encodedSignature = btoa(signedPdf);
+                bodyFormData.append('signature', encodedSignature);
+                axios.post('/api/pdf/save', bodyFormData, {
+                    headers: {'Content-Type': 'multipart/form-data'}
+                }).then(function (response) {
+                    console.log(response.data);
+                });
+
+            });
+
+            alert('Документ успешно подписан и сохранен!');
+        } catch (error) {
+            alert('Ошибка: ' + error.message);
+        } finally {
+            const btn = document.getElementById('signBtn');
+            btn.disabled = false;
+            btn.textContent = 'Подписать PDF';
+        }
+    });
+
+    // 4. Проверка доступности плагина при загрузке страницы
+    document.addEventListener('DOMContentLoaded', async () => {
+        try {
+            await initCadesPlugin();
+            console.log('КриптоПРО Plug-in готов к использованию');
+        } catch (e) {
+            console.error('Ошибка инициализации:', e);
+            alert(e.message);
+        }
+    });
+
+    function base64ToBlob(base64, mime = "application/pdf") {
+        const byteCharacters = atob(base64);
+        const byteNumbers = new Array(byteCharacters.length).fill().map((_, i) => byteCharacters.charCodeAt(i));
+        const byteArray = new Uint8Array(byteNumbers);
+        return new Blob([byteArray], { type: mime });
+    }
+</script>
+</body>
+</html>

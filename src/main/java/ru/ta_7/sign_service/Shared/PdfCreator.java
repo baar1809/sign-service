@@ -1,7 +1,5 @@
 package ru.ta_7.sign_service.Shared;
 
-import com.itextpdf.forms.PdfAcroForm;
-import com.itextpdf.forms.fields.PdfFormField;
 import com.itextpdf.io.font.PdfEncodings;
 import com.itextpdf.kernel.font.PdfFont;
 import com.itextpdf.kernel.font.PdfFontFactory;
@@ -10,7 +8,9 @@ import com.itextpdf.kernel.pdf.*;
 import com.itextpdf.layout.Document;
 import com.itextpdf.layout.element.*;
 import com.itextpdf.layout.properties.TextAlignment;
+import com.itextpdf.signatures.PdfSigner;
 
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.time.LocalDate;
 import java.util.Random;
@@ -32,7 +32,7 @@ public class PdfCreator {
         doc.setFont(font);
 
         // Заголовок
-        Paragraph title = new Paragraph("Достойные сотрудники")
+        Paragraph title = new Paragraph("Сотрудники")
             .setFontSize(16)
             .setTextAlignment(TextAlignment.CENTER);
         doc.add(title);
@@ -52,15 +52,26 @@ public class PdfCreator {
         }
 
         doc.add(table);
-
-        // Поле подписи (нижняя часть страницы)
-        PdfAcroForm form = PdfAcroForm.getAcroForm(pdfDoc, true);
-        Rectangle signatureRect = new Rectangle(100, 100, 200, 50);
-        PdfFormField signatureField = PdfFormField.createSignature(pdfDoc, signatureRect);
-        signatureField.setFieldName("Signature1");
-        form.addField(signatureField);
-
         doc.close();
-        return outputStream.toByteArray();
+
+        ByteArrayOutputStream signedOutput = new ByteArrayOutputStream();
+        PdfReader reader = new PdfReader(new ByteArrayInputStream(outputStream.toByteArray()));
+        PdfSigner signer = new PdfSigner(reader, signedOutput, new StampingProperties().useAppendMode());
+        PdfFont font2 = PdfFontFactory.createFont("fonts/timesnewromanpsmt.ttf", PdfEncodings.IDENTITY_H);
+
+        signer.setFieldName("Signature1");
+        signer.getSignatureAppearance()
+            .setReason("Подпись")
+            .setLocation("Мир")
+            .setLayer2Font(font2)
+            .setPageRect(new Rectangle(100, 100, 200, 50))
+            .setPageNumber(1)
+            .setLayer2Text("Место для подписи");
+
+        PreSignCaptureSignatureContainer captureContainer = new PreSignCaptureSignatureContainer(PdfName.Adobe_PPKLite, PdfName.Adbe_pkcs7_detached);
+        signer.signExternalContainer(captureContainer, 8192);
+        PreSignCaptureSignatureContainer.signedPDF = signedOutput.toByteArray();
+
+        return captureContainer.getCapturedContent();
     }
 }

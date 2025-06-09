@@ -87,23 +87,14 @@
             // 1. Получаем PDF
             const response = await axios.get('/api/pdf/generate');
             const signData = response.data.pdfBase64;
-            // 2. Подписываем
-            let cleanBase64 = signData;
-            SignHashAsync(cleanBase64).then((signedPdf) => {
+            SignHashAsync(signData).then((signedPdf) => {
                 console.log("УРА", signedPdf);
-                const blob = base64ToBlob(signData);
-                const file = new File([blob], "signed.pdf", { type: "application/pdf" });
-                const bodyFormData = new FormData();
-                bodyFormData.append('pdf', file);
-                const encodedSignature = signedPdf;
-                bodyFormData.append('signature', encodedSignature);
                 axios.post('/api/pdf/save', {signature: signedPdf.replace(/\s/g, '')}).then(function (response) {
                     console.log(response.data);
+                    alert('Документ успешно подписан и сохранен!');
                 });
-
             });
 
-            alert('Документ успешно подписан и сохранен!');
         } catch (error) {
             alert('Ошибка: ' + error.message);
         } finally {

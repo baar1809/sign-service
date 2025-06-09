@@ -14,7 +14,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.http.MediaType;
-import ru.ta_7.sign_service.Shared.PdfCreator;
 import ru.ta_7.sign_service.Shared.PreSignCaptureSignatureContainer;
 
 import java.io.ByteArrayInputStream;
@@ -71,7 +70,7 @@ public class MainController {
 
         ByteArrayOutputStream signedOutput = new ByteArrayOutputStream();
         PdfReader reader = new PdfReader(new ByteArrayInputStream(outputStream.toByteArray()));
-        PdfSigner signer = new PdfSigner(reader, signedOutput, new StampingProperties().useAppendMode());
+        PdfSigner signer = new PdfSigner(reader, signedOutput, new StampingProperties());
         PdfFont font2 = PdfFontFactory.createFont("fonts/timesnewromanpsmt.ttf", PdfEncodings.IDENTITY_H);
 
         signer.setFieldName("Signature1");
@@ -112,8 +111,8 @@ public class MainController {
                 public void modifySigningDictionary(com.itextpdf.kernel.pdf.PdfDictionary signDic) {
                 }
             };
-
-            PdfSigner.signDeferred(new PdfDocument(reader), "Signature1", signedPdfOutput, externalSignatureContainer);
+            PdfSigner signer = new PdfSigner(reader, signedPdfOutput, new StampingProperties());
+            PdfSigner.signDeferred(signer.getDocument(), "Signature1", signedPdfOutput, externalSignatureContainer);
 
             byte[] signedPdfBytes = signedPdfOutput.toByteArray();
 
